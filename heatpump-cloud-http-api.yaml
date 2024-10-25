@@ -1,0 +1,1030 @@
+openapi: 3.0.0
+info:
+  title: Qvantum public API
+  description: |+
+
+    ## About
+    The purpose of this API is to provide an integration point to Qvantum heatpumps and
+    other Qvantum devices, to third parties that choose to partner with Qvantum. 
+
+    An integrator should start by getting a general overview of the API to understand 
+    its capabilities, then go back to deep dive into the "whoami" endpoint in 
+    section "auth".
+
+  version: "1.0"
+servers:
+  - url: /api/
+    description: This default environment
+  # - url: https://api.qvantum.com/api/
+  #   description: Production environment
+  # - url: https://api.qvantum-test.com/api/
+  #   description: Test environment
+  # - url: http://localhost:3000/
+  #   description: Local development environment
+  # - url: http://localhost:8080/
+  #   description: Local node development environment
+tags:
+  - name: auth
+    description: Gain access to the devices
+  - name: inventory
+    description: Lists information and document devices, metrics, settings, etc
+  - name: device-info
+    description: Recent device status, settings and telemetry
+  - name: metrics
+    description: Device history for graphing
+  - name: events
+    description: Currents alerts and other events
+paths:
+  /auth/v1/whoami:
+    get:
+      tags:
+        - auth
+      summary: Get information about authenticated user
+      security:
+        - firebase: [ ]
+      description: |+
+        # API Authentication
+
+        Qvantum user are authenticated with firebase. Third party is provided with OAuth2 mechanism to let device owners delegate rights to access data and control user devices via Qvantum APIs. 
+
+        The authentication from firebase is used when calling Qvantum APIs by including the access token in the Authorization: Bearer header.
+
+          Authorization: Bearer <firebase access token>
+
+        Some high priviledge API calls require authentication using a device issued token in the 
+        request. The token must then be included in a custom Authorization header. Normal integration 
+        does not require handling device tokens.
+
+          X-Qvantum-Device-Authorization: Bearer <device issued JWT token>
+
+        ## API auth example code
+        
+        This repository contains code that demonstrates how to implement all parts of the authentication process as Qvantum partner. 
+        
+        [Integration API demo repository on github](https://github.com/Qvantum-Energy/third-party-integration-demo)
+
+        To run this demo successfully, you will need to
+        - Sign partner agreement with Qvantum
+        - Provide redirection URL(s)
+        - Dev account e-mail address that will be used to create an account at Qvantum
+
+        Contact Qvantum sales if you're interested to become a partner.
+
+        ## Authorization for 3rd party
+
+        To authorize 3rd party application a OAuth 2 / OIDC flow is used using a token issue with custom claims. 
+
+        The flow is initiated from 3rd a third party web application that directs the user to a account permission request page.
+
+        ```
+        https://accounts.qvantum.com/authorize?response_type=code&client_id=client123&state=state_data&redirect_uri=https://authorize.3rdparty.com/auth_code
+        ```
+
+        NOTE: Only approved partners are be able to use this endpoint to start OAuth2 authentication
+
+        The user logs in and delegates permissions. Currently only (one) basic permission can be delegated.
+
+        Using the `redirect_uri` in the authorize request, the authorization code is transferred to the 3rd party. 
+
+        ```
+        https://authorize.3rdparty.com/auth_code?state=state_data&code=abc123
+        ```
+
+        ## Custom token sign-in
+
+        The 3rd party will request the access/refresh token using the authorization code URL. [RFC 6749 Section 4.1.3](https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3)
+
+        ```http request
+        POST https://api.qvantum.com/api/oauth2/token?grant_type=authorization_code&authorization_code=abc123
+        ```
+
+        This will return the actual token which is then returned in the token response. The authorization_code is from this point forward invalid.
+
+        Response example
+        ```json
+        {
+          "access_token":"2YotnFZFEjr1zCsicMWpAA",
+          "token_type":"jwt",
+          "expires_in":3600,
+          "refresh_token":"tGzv3JOkF0XG5Qx2TlKWIA"
+        }
+        ```
+
+        ## whoami
+        This endpoint will after successful authentication return information about the authenticated user.
+
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  _info:
+                    type: string
+                    example: "Returned content is the jwt claims in the API request's Bearer token."
+  /auth/v1/oauth2/token:
+    post:
+      tags: [ auth ]
+      summary: OAuth 2 token endpoint
+      description: |+
+
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [ "grant_type", "client_id" ]
+              properties:
+                grant_type:
+                  type: string
+                  enum: [ "authorization_code", "refresh_token" ]
+                  description: The grant type (e.g., "authorization_code", "refresh_token")
+                client_id:
+                  type: string
+                  description: The client ID
+                code:
+                  type: string
+                  description: The authorization code (mandatory for "authorization_code" grant type)
+                refresh_token:
+                  type: string
+                  description: The refresh token (mandatory for "refresh_token" grant type)
+
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /inventory/v1/users/{userId}/devices:
+    parameters:
+      - $ref: '#/components/parameters/userIdPathParam'
+    get:
+      tags:
+        - inventory
+      summary: List devices belonging to the user with userId
+      description: |+
+        List devices belonging to a user. The user is identified by the firebase uid. Using "me" as userId will return information with all devices belonging to the authenticated user.
+
+      security:
+        - firebase: [ ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          example: 3010100111111111
+                        type:
+                          type: string
+                          example: heatpump
+                        serial:
+                          type: string
+                          example: 3010100111111111
+                        vendor:
+                          type: string
+                          example: Qvantum
+                        model:
+                          type: string
+                          example: QE-4
+
+  /inventory/v1/devices/{deviceId}:
+    parameters:
+      - $ref: '#/components/parameters/deviceIdPathParam'
+    get:
+      tags:
+        - inventory
+      operationId: get_device_info_inventory_v1
+      summary: Get inventory device info
+      description: |+
+        Get information about a device. This may in future contain more information than information in the list of the devices for a user.
+      security:
+        - firebase: [ ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    example: 3010100111111111
+                  type:
+                    type: string
+                    example: heatpump
+                  serial:
+                    type: string
+                    example: 3010100111111111
+                  vendor:
+                    type: string
+                    example: Qvantum
+                  model:
+                    type: string
+                    example: QE-4
+
+  /inventory/v1/devices/{deviceId}/alarms:
+    parameters:
+      - $ref: '#/components/parameters/deviceIdPathParam'
+    get:
+      tags:
+        - inventory
+      operationId: get_device_alarms_inventory_v1
+      summary: List alarms that the device may trigger.
+      description: |+
+        # Alarms inventory
+        Get metadata about what alarms the device may trigger.
+
+      security:
+        - firebase: [ ]
+
+      parameters:
+        - name: types
+          in: query
+          example: [  ]
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/AlarmCategory'
+
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alarms:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/InventoryAlarm'
+                      
+  /inventory/v1/devices/{deviceId}/metrics:
+    parameters:
+      - $ref: '#/components/parameters/deviceIdPathParam'
+    get:
+      tags:
+        - inventory
+      operationId: get_device_metrics_inventory_v1
+      summary: List available and accessible metrics with descriptions, for use with status values and timelines
+      description: |+
+        # Metrics inventory
+        Metrics are data values that can only be read from the API. 
+        This endpoint lists all metric names available for the user when querying for current values (status) or timelines (hourly or daily historical values.)
+        See "settings" to find values that can be set by applications.
+
+        ## Current list of metrics available to apps integrating with Qvantum APIs
+        - outdoor_temperature
+        - indoor_temperature
+        - tap_water_capacity
+        - tap_water_tank_temperature
+        - heating_flow_temperature
+        - heating_flow_temperature_target
+        - totalenergy
+        - tap_water_start (sampled setting)
+        - tap_water_stop (sampled setting)
+
+      security:
+        - firebase: [ ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          example: indoor_temperature
+                        unit:
+                          type: string
+                          example: "°C"
+                        value_kind:
+                          type: string
+                          example: gauge
+                        description:
+                          type: string
+                          example: Indoor temperature
+
+  /inventory/v1/devices/{deviceId}/settings:
+    parameters:
+      - $ref: '#/components/parameters/deviceIdPathParam'
+    get:
+      tags:
+        - inventory
+      summary: List settings available for a device
+      description: |+
+        # Settings inventory
+        This inventory lists all settings available to user for reading and/or writing of device settings. Call this endpoint for most recent information about available settings.
+
+        ## Supported settings for applications
+        Some settings are read-only, use API response to list that information.
+
+         - tap_water_capacity_target
+         - extra_tap_water
+         - tap_water_start
+         - tap_water_stop
+         - indoor_temperature_target
+         - indoor_temperature_offset
+         - sensor_mode
+         - vacation_mode
+
+
+      security:
+        - firebase: [ ]
+        - deviceToken: [ ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      example: indoor_temperature_target
+                    read_only:
+                      type: boolean
+                      example: false
+                    display_name:
+                      type: string
+                      description: Long display name
+                      example: Indoor temperature target
+                    data_type:
+                      type: string
+                      enum: [ "string", "number" ]
+                  example:
+                    name: indoor_temperature_target
+                    read_only: false
+                    data_type: "number"
+                    display_name: "Indoor temperature target"
+                    description: "Indoor temperature target for thermostat"
+
+  /device-info/v1/devices/{deviceId}/status:
+    parameters:
+      - $ref: '#/components/parameters/deviceIdPathParam'
+    get:
+      tags:
+        - device-info
+      summary: Get recent information about a device
+      parameters:
+        - in: query
+          name: metrics
+          schema:
+            type: string
+            enum: ["last", "now"]
+          description: Include metrics, now (recent) or last (less recent if device offline short time period)
+      description: |+
+        # Device status
+        This endpoint provides recent information about the device.
+
+        ## Connectivity
+        Connectivity information can be used to understand if the device is connected to the platform, and thus if there is recent data to read about the device, or if device can be controlled by the API user. The platform will in most cases detect when a device gets disconnected within seconds, at worst it can take a few minutes.. 
+        
+        If a device is disconnected recently, connectivity information will tell when the device was last seen and what the reason is for losing connection.
+
+        Connectivity information can be trusted by the API user for two purposes:
+        1. Validity of the data fetched from this or other endpoints in this API
+        2. Trusting that commands will reach the device, for example when changing settings
+
+        Although connectivity is explicitly provided here, other endpoints will include "data validity" information for convenience.
+
+        ## Metrics (optional, configurable)
+        To include the telemetry data, add query parameter "metrics" to the request.
+
+        - metrics value "now" will return telemetry data to the API user only if current values can be returned to the caller
+        - metrics value "last" will return the "most recent metrics" device has reported, if the device has been connected last 7 days.
+
+        If no data is found matching the specified criteria, an empty set is returned and time is set to null. API user can if applicable fall back to timelines which provide historical metrics values.
+
+      security:
+        - firebase: [ ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device_metadata:
+                    type: object
+                    properties: {}
+                  connectivity:
+                    properties:
+                      connected:
+                        type: boolean
+                      timestamp:
+                        type: string
+                        format: date-time
+                      disconnect_reason:
+                        type: string
+                example:
+                  connectivity:
+                    connected: false
+                    timestamp: "2024-03-11T20:52:25.728Z"
+                    disconnect_reason: "client-disconnect"
+                  metrics:
+                    time: "2024-03-18T22:15:41.006Z"
+                    outdoor_temperature: -7.5
+                    indoor_temperature: 16.5
+                    heating_flow_temperature: 18.3
+                    heating_flow_temperature_target: 18.3
+                    tap_water_tank_temperature: 56.6
+                    tap_water_capacity: 5
+
+
+
+
+  /device-info/v1/devices/{deviceId}/settings:
+    parameters:
+      - $ref: '#/components/parameters/deviceIdPathParam'
+    get:
+      tags:
+        - device-info
+      summary: Get settings
+      description: |+
+        # Get device settings
+
+        Returns current or recent device settings. Information in the meta section will describe validity of the settings object.
+        
+        If validity is "now", settings returned by the API are currently active on the device. Otherwise, API user must assume there are issues communicating with the device, and any setting values that the API returns may differ from actual values on device. For more info, check the connectivity information from status endpoint.
+
+      security:
+        - firebase: [ ]
+        - deviceToken: [ ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  meta:
+                    type: object
+                    properties:
+                      last_reported:
+                        type: string
+                        format: date-time
+                      valid_until:
+                        type: string
+                        format: date-time
+                      validity:
+                        type: string
+                        enum: [ "now", "valid_until" ]
+                  settings:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        value:
+                          anyOf:
+                            - type: string
+                            - type: number
+                        read_only:
+                          type: boolean
+                example:
+                  meta:
+                    last_reported: 2024-03-11T20:14:34.002Z
+                    validity: "valid_until"
+                    valid_until: 2024-03-22:14:34.002Z
+                  settings:
+                    - name: indoor_temperature_target
+                      value: 21
+                      read_only: false
+                    - name: tap_water_capacity_target
+                      value: 4
+                      read_only: false
+                    - name: extra_tap_water
+                      value: "off"
+                      read_only: false
+    patch:
+      tags:
+        - device-info
+      summary: Update settings
+      description: |+
+        # Update device settings
+        API user can change settings on a connected device using this endpoint. 
+        List of available settings and their properties can be fetched from the inventory.
+
+        Settings update sends a command to the device and waits for response.
+        - If command is successfully received and executed on the device API will return 200
+        - If the command fails for misc reasons, HTTP error codes will indicate failure reason
+        - If the command times out it can be considered as failed. API will return 202. If consistency with device is important for the application, the API user should set timer and GET current settings 30s after the PATCH call returns 202.
+
+      security:
+        - firebase: [ ]
+      parameters:
+        - in: query
+          name: dispatch
+          required: false
+          description: Dispatch the command and skip waiting for a reply if it is not of interest if the settings update succeeds or not. Even if dispatch is false, the command will still be dispatched.
+          schema:
+            type: boolean
+            enum:
+              - true
+              - false
+
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                settings:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      value:
+                        anyOf:
+                          - type: string
+                          - type: number
+              example:
+                settings:
+                  - name: indoor_temperature_target
+                    value: 21
+                  - name: tap_water_capacity_target
+                    value: 4
+      responses:
+        '200':
+          description: Command successfully executed on the device.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchSettingsResponse'
+        '202':
+          description: Either dispatch was used or there was a timeout while waiting for device.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchSettingsResponse'
+        '400':
+          description: Body did not pass validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: User is missing write access for all supplied settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - meta
+                  - message
+                properties:
+                  meta:
+                    $ref: '#/components/schemas/PatchSettingsMeta'
+                  message:
+                    type: string
+        '422':
+          description: Device rejected the command.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchSettingsResponse'
+        '500':
+          description: Device failed to fulfill the command.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchSettingsResponse'
+        '503':
+          description: Failed to reach device.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+
+  /metrics/v1/devices/{deviceId}/timelines:
+    parameters:
+      - $ref: '#/components/parameters/deviceIdPathParam'
+    get:
+      tags:
+        - metrics
+      summary: Request timeline aggregated metric data
+      description: |+
+        # Request timeline aggregated metric data
+
+        Request aggregated data timeline for a set of metrics.
+
+        ## Resolution
+        Mandatory parameter for timeline data. E.g. hourly resolution will yield 24 data points in a day.
+
+        - 1 day: hourly
+        - 1 week: daily
+        - NOT IMPLEMENTED: 1 month: weekly, daily (default weekly)
+        - NOT IMPLEMENTED: 1 year: monthly, weekly (default monthly)
+
+        The resolution will generate metrics calculated with the each resolution range.
+        
+        ## Range
+        The range is requested using the start and end query parameters. Its defaults depend on specified range. 
+        Extending allowed range is work in progress.
+
+        Range will be expanded to cover whole hours, days etc, depending on selected resolution.
+        
+        ## Metric
+        The API consumer can optionally specify a set of metrics to request. If an unavailable metric is requested, a 400 is returned and no query is performed.
+
+        The available metrics depends on product model and configuration. The [metrics inventory](#/inventory/get_device_metrics_inventory_v1) endpoint can be used to determine available metrics.
+
+        ## Timezone
+        Timezone can be specified with query parameter tz and is important when working with daily aggregates. Defaults to Europe/Stockholm. 
+        
+        tz will be used both to interpret start & end query parameters and to format output in the selected time zone. If timezone information is available in start/end timestamps, this will take precedence over tz query parameter for the input values!
+
+      parameters:
+        - name: metric_names
+          in: query
+          example: [ "indoor_temperature","tap_water_capacity" ]
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: false
+          required: false
+        - name: start
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Start of range, defaults to 1 week back in time
+        - name: end
+          in: query
+          required: false
+          description: End of range, defaults to now, adjusted to fill last window (depending on resultion)
+          schema:
+            type: string
+            format: date-time
+        - name: tz
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["Europe/Stockholm", "Europe/Helsinki"]
+          description: Timezone as specified by https://day.js.org/. Timezone will be used both to interpret input and format output. Defaults to Europe/Stockholm.
+        - name: resolution
+          in: query
+          required: false
+          description: Resolution to use, optional, only a few alternatives permitted, see description.
+          schema:
+            type: string
+            enum: [ "hourly", "daily" ]
+      security:
+        - firebase: [ ]
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            'application/json':
+              schema:
+                type: object
+                properties:
+                  metadata:
+                    type: object
+                    properties:
+                      start:
+                        type: string
+                        format: date-time
+                        example: "2024-03-11T20:00:00.000+01:00"
+                      end:
+                        type: string
+                        format: date-time
+                        example: "2024-03-11T22:59:59.999+01:00"
+                      resolution:
+                        type: string
+                        enum: [ "hourly", "daily" ]
+                  metrics:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        time:
+                          type: string
+                          format: date-time
+                      additionalProperties:
+                        type: number
+                        format: double
+                        example:
+                          1.12
+
+        '400':
+          description: Invalid request
+          content:
+            'text/plain':
+              schema:
+                type: string
+              examples:
+                invalid-metric:
+                  value: "Incorrect metric ids \"test\""
+
+
+  /events/v1/devices/{deviceId}/alarms:
+    parameters:
+      - $ref: '#/components/parameters/deviceIdPathParam'
+    get:
+      tags:
+        - events
+      summary: List alarms
+      security:
+        - firebase: [ ]
+      parameters:
+        - in: query
+          name: category
+          required: false
+          description: Filter alarms by category. Input is case-insensitive.
+          example: ["heatpump", "wifi"]
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/AlarmCategory'
+
+        - in: query
+          name: severity
+          required: false
+          description: Filter alarms by severity. Input is case-insensitive.
+          example: ["CRITICAL"]
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/AlarmSeverity'
+
+        - in: query
+          name: limit
+          required: false
+          description: Page size limit, hard-capped to 50, default 10
+          schema:
+            type: number
+            default: 10
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            'application/json':
+              schema:
+                type: object
+                properties:
+                  alarms:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ListedAlarm'
+
+components:
+  securitySchemes:
+    firebase:
+      type: "http"
+      scheme: bearer
+      bearerFormat: JWT
+    deviceToken:
+      type: apiKey
+      in: header
+      name: "X-Qvantum-Device-Authorization"
+
+  parameters:
+    serialPathParam:
+      in: path
+      name: serial
+      schema:
+        type: string
+      required: true
+      description: Heatpump serial number
+      examples:
+        "3010100111111111":
+          value: 3010100111111111
+    deviceIdPathParam:
+      in: path
+      name: deviceId
+      schema:
+        type: string
+      required: true
+      description: Device id (serial for heatpumps)
+      examples:
+        "3010100111111111":
+          value: 3010100111111111
+    userIdPathParam:
+      in: path
+      name: userId
+      schema:
+        type: string
+      required: true
+      description: User ID (firebase uid)
+      examples:
+        (logged-in user):
+          value: me
+
+  # headers:
+  # 'X-Qvantum-Command-Id':
+  #   description: UUID of command
+  #   schema:
+  #     type: string
+  # 'X-Qvantum-Heatpump-Command-Id':
+  #   description: Heatpump local ID of command
+  #   schema:
+  #     type: integer
+  #     format: int64
+
+  schemas:
+    # EventTypeEnum:
+    #   type: string
+    #   enum: [ "online", "offline", "ota-status", "iot-presence-connected", "iot-presence-disconnected" ]
+    StandardResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example:
+            "Response message"
+
+    ErrorResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example:
+            "Error message"
+
+    AlarmCategory:
+      type: string
+      enum:
+        - HEATPUMP
+        - COM
+        - CLOUD 
+        - WIFI
+        - INVERTER
+
+    AlarmSeverity:
+      type: string
+      enum:
+        - INFO
+        - WARNING
+        - SEVERE
+        - CRITICAL
+
+    CommandStatus:
+      type: string
+      enum:
+        - TRANSMITTED
+        - FAILED
+        - APPLIED
+        - REJECTED
+
+    PatchSettingsMeta:
+      type: object
+      required:
+        - forbidden
+      properties:
+        forbidden:
+          type: array
+          items:
+            type: string
+            description: The rejected setting by name.
+
+    PatchSettingsResponse:
+      type: object
+      required:
+        - id
+        - status
+        - total_latency
+
+      properties:
+        id:
+          type: string
+
+        status:
+          $ref: '#/components/schemas/CommandStatus'
+
+        total_latency:
+          type: number
+
+        response:
+          type: object
+          description: Response from the device.
+
+        meta:
+          $ref: '#/components/schemas/PatchSettingsMeta'
+
+    TokenEndpointRequest:
+      type: object
+      properties:
+        grant_type:
+          type: string
+          description: The grant type (e.g., "client_credentials", "authorization_code")
+        client_id:
+          type: string
+          description: The client ID
+        client_secret:
+          type: string
+          description: The client secret
+        code:
+          type: string
+          description: The authorization code (for "authorization_code" grant type)
+        redirect_uri:
+          type: string
+          description: The redirect URI (for "authorization_code" grant type)
+        refresh_token:
+          type: string
+          description: The refresh token (for "refresh_token" grant type)
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: The access token
+        token_type:
+          type: string
+          description: The type of the token (e.g., "Bearer")
+        expires_in:
+          type: integer
+          description: The expiration time of the access token in seconds
+        refresh_token:
+          type: string
+          description: The refresh token (if applicable)
+
+    InventoryAlarm:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/AlarmCategory'
+        code:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: '#/components/schemas/AlarmSeverity'
+
+    ListedAlarm:
+      type: object
+      properties:
+        id:
+          type: string
+        device_alarm_id:
+          type: string
+        type:
+          type: string
+        code:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: '#/components/schemas/AlarmSeverity'
+        is_active:
+          type: boolean
+        is_acknowledged:
+          type: boolean
+        triggered_timestamp:
+          type: string
+          format: date-time
+        reset_timestamp:
+          type: string
+          format: date-time
+        acknowledged_timestamp:
+          type: string
+          format: date-time
+        data:
+          type: object
+
