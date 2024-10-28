@@ -151,7 +151,7 @@ class QvantumApi:
         # defualt limit is 10
         # filter? to set in diferent topics?
         # ?category={category.value}&limit=10"
-        path = f"api/events/v1/devices/{device_id}/alarms&limit=10"
+        path = f"api/events/v1/devices/{device_id}/alarms?limit=10"
         res_dict = self.get_request(path)
         if res_dict is None:
             return None

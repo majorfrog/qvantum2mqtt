@@ -202,7 +202,7 @@ class Qvantum2Mqtt:
         for pump in self.devices:
 
             # res = self.api.get_pump_alarm_events(pump.id)
-            # print(res.json())
+            # print(res)
 
             # Common HA device for this pump
             identifiers = [pump.id]
