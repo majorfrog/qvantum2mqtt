@@ -36,13 +36,8 @@ class MqttClient(mqtt.Client):
         parts = message.topic.split("/")
         device_id = parts[2]
         setting = parts[4]
-        # TODO: Could use inventory to get value type and try cast
-        # target_value = int(message.payload.decode("utf-8"))
-        # self.api.set_pump_setting(
-        #     device_id, setting, target_value)
-        print(f"Setting: {setting}, Value: {message.payload.decode('utf-8')}")
-        # self.api.set_pump_setting(
-        #     device_id, setting, message.payload.decode("utf-8"))
+        self.api.set_pump_setting(
+            device_id, setting, message.payload.decode("utf-8"))
 
     def publish_msg(self, topic: str, value, retain: bool = False):
         self.publish(topic, value, qos=0, retain=retain)

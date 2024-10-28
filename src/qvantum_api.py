@@ -159,32 +159,30 @@ class QvantumApi:
 
     def set_pump_setting(self, device_id: str, setting: str, value: Any) -> QvantumBaseModel:
         """
-        TODO: Waiting for response from qvantum.
-        This request doesn't work at the moment. Could be something wrong in the API specification.
-        API return 500 {"message":"Internal server error"}
-        Not sure why. Same fo all settings and I've tested all that says they are settable.
+        Send a patch request and update a setting on the machine.
         """
         headers = {
             'accept': 'application/json',
             'Content-Type': 'application/json',
             "Authorization": f"Bearer {self.tokens.access_token}"
         }
+        # Try cast to int. If int value is sent as string, the API will return 200 (OK)
+        # but the request will have no effect. The server should either check payload validity
+        # and return 400 with a proper description or try to cast itself.
+        value = int(value) if value.lstrip('-').isdigit() else value
+
         payload = SetSettingsRequest(
             settings=[SetSetting(name=setting, value=value)])
 
         url = f"{self.config.api_endpoint}/api/device-info/v1/devices/{device_id}/settings?dispatch=false"
-        res = requests.patch(url=url, json=payload.json(), headers=headers)
-        res_dict = json.loads(res.text)
+        res = requests.patch(url=url, data=payload.json(), headers=headers)
+        if res.status_code != 200:
+            print(f"Potential server error: {res.status_code} {res.text}")
+            return None
+        else:
+            print(f"Successful set: {res.status_code} {res.text}")
 
-        print("Sending request: ")
-        print(res.request.headers)
-        print(res.request.method)
-        print(res.request.url)
-        print(payload.json())
-        print("Response:")
-        print(res.status_code)
-        print(res.headers)
-        print(res.text)
+        res_dict = json.loads(res.text)
 
         return QvantumBaseModel(**res_dict)
 
