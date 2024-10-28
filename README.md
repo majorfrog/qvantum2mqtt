@@ -2,14 +2,26 @@
 
 Simple python app that communicates with the qvantum api: https://api.qvantum.com/
 
-Publishes the data on the configured mqtt broker.
+Publishes the data on the configured mqtt broker and makes it possible to monitor all your devices.
 
-Makes it possible to monitor all your devices.
+Written to work with home assistant for easy integration.
 
-Written to work well with home assistant for easy integration. Possible to set settings over MQTT and HA.
 
-# LIMITS
+## To run
 
-Note! This is a WIP. The API is not yet fully available, so this app cannot be completed.
+Copy config_example.ini
+```console
+> cp src/config_example.ini src/config.ini
+```
 
-Hopefully it will be possible to fully integrate later this year.
+Edit the file per your setup. mqtt options is requried be modified to match your broker config. The rest can be left as is. More info about the options can be found in the config_example.ini file.
+
+```console
+> cd src
+> python3 -m venv venv
+> source venv/bin/activate
+> pip install -r requirements.txt
+> python3 qvantum2mqtt.py
+```
+
+Authorize the app in the browser, and it'll be running!
