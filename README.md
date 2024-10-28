@@ -12,9 +12,4 @@ Written to work well with home assistant for easy integration. Possible to set s
 
 Note! This is a WIP. The API is not yet fully available, so this app cannot be completed.
 
-Docs doesn't always match reality.
-Patch requests fail.
-Events not correct.
-And more...
-
 Hopefully it will be possible to fully integrate later this year.
