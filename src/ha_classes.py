@@ -7,7 +7,6 @@ from pydantic import BaseModel, ConfigDict
 
 class Device(BaseModel):
     configuration_url: Optional[str] = None
-    configuration_url: Optional[str] = None
     hw_version: Optional[str] = None
     identifiers: Optional[list[str]] = None
     name: Optional[str] = None
@@ -29,6 +28,13 @@ class DeviceClass(str, Enum):
     HEAT = "heat"
 
 
+class Availability(BaseModel):
+    topic: str
+    payload_available: str
+    payload_not_available: str
+    value_template: str
+
+
 class Config(BaseModel):
     name: Optional[str] = None
     state_topic: str
@@ -40,6 +46,7 @@ class Config(BaseModel):
     json_attributes_template: Optional[str] = None
     icon: Optional[str] = None
     entity_category: Optional[str] = None
+    availability: Availability
 
 
 class Sensor(Config):

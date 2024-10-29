@@ -4,8 +4,7 @@ import json
 from typing import Any
 import requests
 from config import QvantumApiConfig
-from qvantum_classes import AlarmCategory, AlarmEventsResponse, AlarmInventoryResponse, DevicesResponse, MetricsInventoryResponse, MetricsResponse, PumpSettingsResponse, PumpStatusResponse, QvantumBaseModel, SetSetting, SetSettingsRequest, SettingsInventoryResponse, Token, TokenUser
-
+from qvantum_classes import *
 from http.server import BaseHTTPRequestHandler
 from io import BytesIO
 import json

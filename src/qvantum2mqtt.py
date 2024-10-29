@@ -3,10 +3,10 @@
 import argparse
 import time
 from mqtt import MqttClient
-from ha_classes import BinarySensor, Device, Number, Sensor, Switch
+from ha_classes import Availability, BinarySensor, Device, Number, Sensor, Switch
 from config import Config, load_config
 from qvantum_api import QvantumApi
-from qvantum_classes import Connectivity, Setting
+from qvantum_classes import Connectivity, MetaData, Setting
 
 
 class Qvantum2Mqtt:
@@ -63,14 +63,16 @@ class Qvantum2Mqtt:
                 self.refresh_token()
                 count = 0
 
-    def configure_metrics(self, pump_id: str, device: Device):
+    def configure_metrics(self, pump_id: str, device: Device, availability: Availability):
         metrics_inventory = self.api.get_pump_metrics_inventory(pump_id)
 
         con_state_topic = self.mqtt.get_state_topic(
             pump_id, "status", "connectivity")
         con_config_topic = self.mqtt.get_config_topic(
             pump_id, "connectivity", "binary_sensor")
+
         con_config = BinarySensor(device=device,
+                                  availability=availability,
                                   name="connectivity",
                                   object_id=f"{pump_id}_connectivity",
                                   unique_id=f"qvantum_{pump_id}_connectivity",
@@ -101,6 +103,7 @@ class Qvantum2Mqtt:
                 value_template = self.mqtt.get_value_template(metric.name)
 
                 config = Sensor(device=device,
+                                availability=availability,
                                 name=metric.name,
                                 object_id=f"{pump_id}_{metric.name}",
                                 unique_id=f"qvantum_{pump_id}_{metric.name}",
@@ -109,7 +112,7 @@ class Qvantum2Mqtt:
                                 value_template=value_template)
                 self.mqtt.deploy_config(config_topic, config)
 
-    def configure_settings(self, pump_id: str, device: Device):
+    def configure_settings(self, pump_id: str, device: Device, availability: Availability):
         # Listen to set topic
         self.mqtt.add_subscribe(f"qvantum/devices/+/settings/+/set")
         settings_inventory = self.api.get_pump_settings_inventory(pump_id)
@@ -126,6 +129,7 @@ class Qvantum2Mqtt:
                     config_topic = self.mqtt.get_config_topic(
                         pump_id, setting.name, "number")
                     config = Number(device=device,
+                                    availability=availability,
                                     name=setting.display_name,
                                     step=setting.get_step(),
                                     min=setting.get_min(),
@@ -145,6 +149,7 @@ class Qvantum2Mqtt:
                         config_topic = self.mqtt.get_config_topic(
                             pump_id, setting.name, "binary_sensor")
                         config = BinarySensor(device=device,
+                                              availability=availability,
                                               name=setting.display_name,
                                               object_id=f"{pump_id}_{setting.name}",
                                               unique_id=f"qvantum_{pump_id}_{setting.name}",
@@ -162,6 +167,7 @@ class Qvantum2Mqtt:
                         config_topic = self.mqtt.get_config_topic(
                             pump_id, setting.name, "switch")
                         config = Switch(device=device,
+                                        availability=availability,
                                         name=setting.display_name,
                                         object_id=f"{pump_id}_{setting.name}",
                                         unique_id=f"qvantum_{pump_id}_{setting.name}",
@@ -179,6 +185,7 @@ class Qvantum2Mqtt:
                     config_topic = self.mqtt.get_config_topic(
                         pump_id, setting.name, "sensor")
                     config = Sensor(device=device,
+                                    availability=availability,
                                     name=setting.display_name,
                                     object_id=f"{pump_id}_{setting.name}",
                                     unique_id=f"qvantum_{pump_id}_{setting.name}",
@@ -188,7 +195,7 @@ class Qvantum2Mqtt:
                                     value_template=value_template)
                     self.mqtt.deploy_config(config_topic, config)
 
-    def configure_alarms(self, pump_id: str, device: Device):
+    def configure_alarms(self, pump_id: str, device: Device, availability: Availability):
         # The API does not care about the query category.
         # TODO: rellay have a sensor for each alarm? Gonna be a lot of sensors...
         # Maybe just one sensor "Alarm", with an array of active alarms in the attribute?
@@ -209,9 +216,29 @@ class Qvantum2Mqtt:
             name = "Qvantum Värmepump"
             device = Device(identifiers=identifiers, name=name,
                             manufacturer=pump.vendor, serial_number=pump.serial, model=pump.model)
-            self.configure_settings(pump.id, device)
-            self.configure_metrics(pump.id, device)
-            self.configure_alarms(pump.id, device)
+
+            # Get the metadata for the pump
+            pump_status = self.api.get_pump_status(pump.id)
+            # if there is data to be set, do so
+            if pump_status.device_data is not None:
+                meta_data: MetaData = pump_status.device_data
+                device.sw_version = meta_data.display_fw_version
+                # Use hw version as placeholder
+                device.hw_version = meta_data.cc_fw_version
+                # meta_data.inv_fw_version is always 0
+
+            # define the availability topic for all sensors
+            availability_topic = self.mqtt.get_state_topic(
+                pump.id, "status", "connectivity")
+            availability = Availability(topic=availability_topic,
+                                        value_template=self.mqtt.get_value_template(
+                                            "connected"),
+                                        payload_available="True",
+                                        payload_not_available="False",
+                                        )
+            self.configure_settings(pump.id, device, availability)
+            self.configure_metrics(pump.id, device, availability)
+            self.configure_alarms(pump.id, device, availability)
 
 
 def main(config_path: str = "config.ini"):

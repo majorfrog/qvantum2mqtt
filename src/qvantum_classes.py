@@ -107,9 +107,18 @@ class PumpSettingsResponse(QvantumBaseModel):
     settings: Optional[list[Setting]] = None
 
 
+class MetaData(QvantumBaseModel):
+    uptime_hours: Optional[int] = 0
+    display_fw_version: Optional[str] = "0.0.0"
+    cc_fw_version: Optional[str] = "0.0.0"
+    inv_fw_version: Optional[str] = "0.0.0"
+
+
 class PumpStatusResponse(QvantumBaseModel):
     connectivity: Optional[Connectivity] = None
     metrics: Optional[Metrics] = None
+    device_data: Optional[MetaData] = Field(
+        default=None, alias='device_metadata')
 
 
 class SettingsInventory(QvantumBaseModel):
