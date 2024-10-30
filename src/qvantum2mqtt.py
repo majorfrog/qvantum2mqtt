@@ -262,7 +262,6 @@ def main(config_path: str = "config.ini"):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(
         description='Qvantum2MQTT application. Control your heatpump using MQTT.')
 
@@ -272,20 +271,17 @@ if __name__ == "__main__":
         default="config.ini",
         required=False,
     )
-
     parser.add_argument(
         '-d', '--debug',
         help="Print debug info.",
         action="store_const", dest="loglevel", const=logging.DEBUG,
         default=logging.WARNING,
     )
-
     parser.add_argument(
         '-v', '--verbose',
         help="Be verbose.",
         action="store_const", dest="loglevel", const=logging.INFO,
     )
-
     args = parser.parse_args()
 
     handler = logging.StreamHandler(sys.stdout)
