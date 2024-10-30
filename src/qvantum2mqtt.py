@@ -1,12 +1,17 @@
 
 
 import argparse
+import logging
+import sys
 import time
+import traceback
 from mqtt import MqttClient
 from ha_classes import Availability, BinarySensor, Device, Number, Sensor, Switch
 from config import Config, load_config
 from qvantum_api import QvantumApi
 from qvantum_classes import Connectivity, MetaData, Setting
+
+log = logging.getLogger(__name__)
 
 
 class Qvantum2Mqtt:
@@ -27,36 +32,43 @@ class Qvantum2Mqtt:
             time.sleep(2)
 
     def refresh_token(self):
-        print("Refresh token")
+        log.info("Refresh token")
         self.api.refresh_access_token()
 
     def update_states(self):
         count = 0
         while True:
-            count += 1
-            print("Updating states on all devices.")
-            # use refresh token to get new access token
-            for pump in self.devices:
-                pump_settings = self.api.get_pump_settings(pump.id)
-                self.mqtt.publish_state(pump.id, "settings", "meta",
-                                        pump_settings.meta.json())
+            try:
+                log.info("Updating states on all devices.")
+                count += 1
+                # use refresh token to get new access token
+                for pump in self.devices:
+                    pump_settings = self.api.get_pump_settings(pump.id)
+                    if pump_settings is None:
+                        continue
+                    self.mqtt.publish_state(pump.id, "settings", "meta",
+                                            pump_settings.meta.json())
 
-                for setting in pump_settings.settings:
-                    self.mqtt.publish_state(pump.id, "settings", setting.name,
-                                            setting.json())
+                    for setting in pump_settings.settings:
+                        self.mqtt.publish_state(pump.id, "settings", setting.name,
+                                                setting.json())
 
-                pump_status = self.api.get_pump_status(pump.id)
+                    pump_status = self.api.get_pump_status(pump.id)
+                    if pump_status is None:
+                        continue
 
-                self.mqtt.publish_state(pump.id, "status", "metrics",
-                                        pump_status.metrics.json())
+                    self.mqtt.publish_state(pump.id, "status", "metrics",
+                                            pump_status.metrics.json())
 
-                self.mqtt.publish_state(pump.id, "status", "connectivity",
-                                        pump_status.connectivity.json())
+                    self.mqtt.publish_state(pump.id, "status", "connectivity",
+                                            pump_status.connectivity.json())
 
-                # This endpoint doesn't work propwerly. Static data and a lot missing... Skip for now
-                # data = self.api.get_pump_metric(
-                #     pump.id, ["compressorenergy", "indoor_temperature", "tap_water_capacity", "additionalenergy"])
-                # print(data.json())
+                    # This endpoint doesn't work propwerly. Static data and a lot missing... Skip for now
+                    # data = self.api.get_pump_metric(
+                    #     pump.id, ["compressorenergy", "indoor_temperature", "tap_water_capacity", "additionalenergy"])
+                    # log.info(data.json())
+            except Exception as e:
+                log.exception("An exception occured")
 
             time.sleep(10)  # fetch every 10 seconds
             if count % 10 == 0:
@@ -88,18 +100,17 @@ class Qvantum2Mqtt:
 
         state_topic = self.mqtt.get_state_topic(pump_id, "status", "metrics")
         for metric in metrics_inventory.metrics:
-            config_topic = self.mqtt.get_config_topic(
-                pump_id, metric.name, "sensor")
-
             if metric.name == "compressorenergy":
-                print("compressorenergy not yet available")
+                log.debug("compressorenergy not yet available")
             elif metric.name == "additionalenergy":
-                print("additionalenergy not yet available")
+                log.debug("additionalenergy not yet available")
             elif metric.name == "tap_water_start":
-                print("tap_water_start not yet available")
+                log.debug("tap_water_start not yet available")
             elif metric.name == "tap_water_stop":
-                print("tap_water_stop not yet available")
+                log.debug("tap_water_stop not yet available")
             else:
+                config_topic = self.mqtt.get_config_topic(
+                    pump_id, metric.name, "sensor")
                 value_template = self.mqtt.get_value_template(metric.name)
 
                 config = Sensor(device=device,
@@ -202,14 +213,14 @@ class Qvantum2Mqtt:
         # Not sure how alarm inventory helps. Each alarm already have a description
         # and the current alarm is not mentioned in the inventory...
         alarms = self.api.get_pump_alarm_inventory(pump_id)
-        # print(alarms.json())
+        # log.info(alarms.json())
 
     def configure_devices(self):
         self.refresh_token()
         for pump in self.devices:
 
             # res = self.api.get_pump_alarm_events(pump.id)
-            # print(res)
+            # log.info(res)
 
             # Common HA device for this pump
             identifiers = [pump.id]
@@ -242,7 +253,7 @@ class Qvantum2Mqtt:
 
 
 def main(config_path: str = "config.ini"):
-    print("Starting qvantum2mqtt...")
+    log.info("Starting qvantum2mqtt...")
     config = load_config(config_path)
     q2m = Qvantum2Mqtt(config)
     q2m.configure_devices()
@@ -255,8 +266,35 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description='Qvantum2MQTT application. Control your heatpump using MQTT.')
 
-    parser.add_argument('--config', type=str, default="config.ini", required=False,
-                        help='Path to the config file. Defaults to "config.ini".')
+    parser.add_argument(
+        '-c', '--config',
+        help='Path to the config file. Defaults to "config.ini".', type=str,
+        default="config.ini",
+        required=False,
+    )
+
+    parser.add_argument(
+        '-d', '--debug',
+        help="Print debug info.",
+        action="store_const", dest="loglevel", const=logging.DEBUG,
+        default=logging.WARNING,
+    )
+
+    parser.add_argument(
+        '-v', '--verbose',
+        help="Be verbose.",
+        action="store_const", dest="loglevel", const=logging.INFO,
+    )
 
     args = parser.parse_args()
+
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter(
+        '%(asctime)s - q2m - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    root = logging.getLogger(__name__)
+
+    root.addHandler(handler)
+    root.setLevel(args.loglevel)
+
     main(args.config)

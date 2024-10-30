@@ -1,10 +1,12 @@
+import logging
 import sys
-import time
 import paho.mqtt.client as mqtt
 
 from ha_classes import Config, Device
 from config import HomeAssistantConfig, MqttConfig
 from qvantum_api import QvantumApi
+
+log = logging.getLogger(__name__)
 
 
 class MqttClient(mqtt.Client):
@@ -20,19 +22,19 @@ class MqttClient(mqtt.Client):
         self.subs = []
         self.connected = False
         if self.connect(self.config.server, self.config.port, 60) != 0:
-            print("Couldn't connect to the mqtt broker")
+            log.error("Couldn't connect to the mqtt broker")
             sys.exit(1)
 
     def on_connect(self, client, userdata, flags, reason_code):
-        print("Connected")
+        log.debug("Connected")
         self.connected = True
         for topic in self.subs:
-            print(f"sub topic {topic}")
+            log.debug(f"sub topic {topic}")
             self.subscribe(topic)
 
     def on_message(self, client, userdata, message):
-        print("received message =", str(message.payload.decode("utf-8")))
-        print(f"on topic: {message.topic}")
+        log.debug("received message =", str(message.payload.decode("utf-8")))
+        log.debug(f"on topic: {message.topic}")
         parts = message.topic.split("/")
         device_id = parts[2]
         setting = parts[4]

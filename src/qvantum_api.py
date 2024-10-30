@@ -1,6 +1,7 @@
 
 
 import json
+import logging
 from typing import Any
 import requests
 from config import QvantumApiConfig
@@ -16,6 +17,8 @@ import webbrowser
 
 import requests
 from qvantum_classes import Token, TokenUser
+
+log = logging.getLogger(__name__)
 
 
 class HTTPRequest(BaseHTTPRequestHandler):
@@ -44,12 +47,14 @@ class QvantumApi:
         }
         res = requests.get(url=url, headers=headers)
         if res.status_code != 200:
-            print(f"Potential server error: {res.status_code} {res.text}")
+            log.warning(
+                f"Potential server error: {res.status_code} {res.text}")
             return None
         return json.loads(res.text)
 
     def request_access_token(self, code):
-        print("Requesting access token - after this, refresh token can be used to renew")
+        log.info(
+            "Requesting access token - after this, refresh token can be used to renew")
         headers = {
             'Content-Type': 'application/x-www-form-urlencoded'
         }
@@ -58,7 +63,7 @@ class QvantumApi:
         url = f"{self.config.api_endpoint}/api/auth/v1/oauth2/token"
         res = requests.post(url=url, data=body, headers=headers)
         if res.status_code != 200:
-            print("Could not be authenticated!")
+            log.warning("Could not be authenticated!")
             sys.exit()
 
         res_dict = json.loads(res.text)
@@ -83,7 +88,7 @@ class QvantumApi:
         url = f"{self.config.api_endpoint}/api/auth/v1/oauth2/token"
         res = requests.post(url=url, data=body, headers=headers)
         if res.status_code != 200:
-            print("Refresh token is invalid.")
+            log.info("Refresh token is invalid. Will request a new.")
             # Get a new access code
             return False
         res_dict = json.loads(res.text)
@@ -176,13 +181,11 @@ class QvantumApi:
         url = f"{self.config.api_endpoint}/api/device-info/v1/devices/{device_id}/settings?dispatch=false"
         res = requests.patch(url=url, data=payload.json(), headers=headers)
         if res.status_code != 200:
-            print(f"Potential server error: {res.status_code} {res.text}")
+            log.warning(
+                f"Potential server error: {res.status_code} {res.text}")
             return None
-        else:
-            print(f"Successful set: {res.status_code} {res.text}")
 
         res_dict = json.loads(res.text)
-
         return QvantumBaseModel(**res_dict)
 
     def get_tokens(self) -> Token:
@@ -192,16 +195,16 @@ class QvantumApi:
         authenticated = False
         # if auth file exists, use referesh token to fetch new access
         if os.path.isfile(self.config.auth_file_path):
-            print("Auth file exist. Read and use refresh token.")
+            log.debug("Auth file exist. Read and use refresh token.")
             f = open(self.config.auth_file_path, "r")
             self.tokens = Token(**json.loads(f.read()))
             if self.refresh_access_token():
                 authenticated = True
 
         if not authenticated:
-            print("No authenticated. Get code from auth server.")
+            log.debug("No authenticated. Get code from auth server.")
             # open up listening on port
-            print(f"Listening on port {self.config.port}")
+            log.debug(f"Listening on port {self.config.port}")
             serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
@@ -210,16 +213,16 @@ class QvantumApi:
 
             except socket.error as msg:
                 # Port might be taken...
-                print('Bind failed. Error Code : ' +
-                      str(msg[0]) + ' Message ' + msg[1])
+                log.error('Bind failed. Error Code : ' +
+                          str(msg[0]) + ' Message ' + msg[1])
                 sys.exit()
 
             # Open a browser to authorize the app
             url = f"{self.config.auth_server}/authorize?response_type=code&client_id={self.config.client_id}&state={self.config.state}&redirect_uri={self.config.redirect}:{self.config.port}"
-            print("Follow this link to complete this step:")
-            print(url)
+            log.warning("Follow this link to complete this step:")
+            log.warning(url)
             if self.config.open_browser:
-                print("Opening browser for authentication.")
+                log.debug("Opening browser for authentication.")
                 webbrowser.open(url, new=0, autoraise=True)
 
             # recv the data and get the code
@@ -235,7 +238,7 @@ class QvantumApi:
             if qs["code"]:
                 self.request_access_token(qs["code"][0])
             else:
-                print("No code returned. Exiting.")
+                log.error("No code returned. Exiting.")
                 sys.exit()
 
         self.load_user_id()
