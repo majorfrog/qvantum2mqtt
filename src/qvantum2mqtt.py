@@ -6,7 +6,7 @@ import sys
 import time
 import traceback
 from mqtt import MqttClient
-from ha_classes import Availability, BinarySensor, Device, Number, Sensor, Switch
+from ha_classes import Availability, BinarySensor, Device, DeviceClass, Number, Sensor, Switch
 from config import Config, load_config
 from qvantum_api import QvantumApi
 from qvantum_classes import Connectivity, MetaData, Setting
@@ -62,6 +62,9 @@ class Qvantum2Mqtt:
 
                     self.mqtt.publish_state(pump.id, "status", "connectivity",
                                             pump_status.connectivity.json())
+
+                    self.mqtt.publish_state(pump.id, "status", "metadata",
+                                            pump_status.device_data.json())
 
                     # This endpoint doesn't work propwerly. Static data and a lot missing... Skip for now
                     # data = self.api.get_pump_metric(
@@ -206,6 +209,24 @@ class Qvantum2Mqtt:
                                     value_template=value_template)
                     self.mqtt.deploy_config(config_topic, config)
 
+    def configure_device_meta_data(self, pump_id: str, device: Device, availability: Availability):
+        state_topic = self.mqtt.get_state_topic(
+            pump_id, "status", "metadata")
+
+        for metadata in MetaData.get_field_names():
+            config_topic = self.mqtt.get_config_topic(
+                pump_id, metadata, "sensor")
+            config = Sensor(device=device,
+                            availability=availability,
+                            name=metadata,
+                            object_id=f"{pump_id}_{metadata}",
+                            unique_id=f"qvantum_{pump_id}_{metadata}",
+                            state_topic=state_topic,
+                            value_template=self.mqtt.get_value_template(
+                                metadata)
+                            )
+            self.mqtt.deploy_config(config_topic, config)
+
     def configure_alarms(self, pump_id: str, device: Device, availability: Availability):
         # The API does not care about the query category.
         # TODO: rellay have a sensor for each alarm? Gonna be a lot of sensors...
@@ -250,6 +271,7 @@ class Qvantum2Mqtt:
             self.configure_settings(pump.id, device, availability)
             self.configure_metrics(pump.id, device, availability)
             self.configure_alarms(pump.id, device, availability)
+            self.configure_device_meta_data(pump.id, device, availability)
 
 
 def main(config_path: str = "config.ini"):
