@@ -70,7 +70,7 @@ class QvantumApi:
         self.tokens = Token(**res_dict)
         # update the file in case we need to restart
         f = open(self.config.auth_file_path, "w")
-        f.write(self.tokens.json())
+        f.write(self.tokens.model_dump_json())
         f.close()
 
     def load_user_id(self):
@@ -95,7 +95,7 @@ class QvantumApi:
         self.tokens = Token(**res_dict)
         # update the file in case we need to restart
         f = open(self.config.auth_file_path, "w")
-        f.write(self.tokens.json())
+        f.write(self.tokens.model_dump_json())
         f.close()
         return True
 
@@ -113,19 +113,20 @@ class QvantumApi:
             return None
         return PumpSettingsResponse(**res_dict)
 
-    def get_pump_status(self, device_id: str) -> PumpStatusResponse:
+    def get_pump_status(self, device_id: str) -> tuple[PumpStatusResponse, Any]:
         path = f"api/device-info/v1/devices/{device_id}/status?metrics=now"
         res_dict = self.get_request(path)
+        # log.warning(res_dict)
         if res_dict is None:
-            return None
-        return PumpStatusResponse(**res_dict)
+            return None, res_dict
+        return PumpStatusResponse(**res_dict), res_dict
 
-    def get_pump_metrics_inventory(self, device_id: str) -> MetricsInventoryResponse:
+    def get_pump_metrics_inventory(self, device_id: str) -> tuple[MetricsInventoryResponse, Any]:
         path = f"api/inventory/v1/devices/{device_id}/metrics"
         res_dict = self.get_request(path)
         if res_dict is None:
-            return None
-        return MetricsInventoryResponse(**res_dict)
+            return None, res_dict
+        return MetricsInventoryResponse(**res_dict), res_dict
 
     def get_pump_metric(self, device_id: str, metrics: list[str]) -> MetricsResponse:
         metrics_str = ','.join(metrics)
@@ -135,12 +136,12 @@ class QvantumApi:
             return None
         return MetricsResponse(**res_dict)
 
-    def get_pump_settings_inventory(self, device_id: str) -> SettingsInventoryResponse:
+    def get_pump_settings_inventory(self, device_id: str) -> tuple[SettingsInventoryResponse, Any]:
         path = f"api/inventory/v1/devices/{device_id}/settings"
         res_dict = self.get_request(path)
         if res_dict is None:
-            return None
-        return SettingsInventoryResponse(**res_dict)
+            return None, res_dict
+        return SettingsInventoryResponse(**res_dict), res_dict
 
     # api does not care about category?
     def get_pump_alarm_inventory(self, device_id: str) -> AlarmInventoryResponse:
@@ -179,7 +180,8 @@ class QvantumApi:
             settings=[SetSetting(name=setting, value=value)])
 
         url = f"{self.config.api_endpoint}/api/device-info/v1/devices/{device_id}/settings?dispatch=false"
-        res = requests.patch(url=url, data=payload.json(), headers=headers)
+        res = requests.patch(
+            url=url, data=payload.model_dump_json(), headers=headers)
         if res.status_code != 200:
             log.warning(
                 f"Potential server error: {res.status_code} {res.text}")

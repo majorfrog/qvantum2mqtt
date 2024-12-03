@@ -100,6 +100,10 @@ class Metrics(QvantumBaseModel):
     heating_flow_temperature_target: int | Optional[float] = None
     tap_water_tank_temperature: int | Optional[float] = None
     tap_water_capacity: int | Optional[float] = None
+    tap_water_start: int | Optional[float] = None
+    tap_water_stop: int | Optional[float] = None
+    compressorenergy: int | Optional[float] = None
+    additionalenergy: int | Optional[float] = None
 
 
 class PumpSettingsResponse(QvantumBaseModel):
@@ -168,7 +172,7 @@ class SettingsInventory(QvantumBaseModel):
         elif self.name == "indoor_temperature_offset":
             return 1
         else:
-            return 0
+            return 1
 
 
 class SettingsInventoryResponse(QvantumBaseModel):
@@ -222,6 +226,12 @@ class MetricsInventory(QvantumBaseModel):
 
 class MetricsInventoryResponse(QvantumBaseModel):
     metrics: Optional[list[MetricsInventory]] = None
+
+    def find_metric(self, name: str) -> Optional[MetricsInventory]:
+        for metric in self.metrics:
+            if metric.name == name:
+                return metric
+        return None
 
 
 # TODO:

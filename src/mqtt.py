@@ -2,7 +2,7 @@ import logging
 import sys
 import paho.mqtt.client as mqtt
 
-from ha_classes import Config, Device
+from ha_classes import Config, Device, Q2mState
 from config import HomeAssistantConfig, MqttConfig
 from qvantum_api import QvantumApi
 
@@ -18,6 +18,11 @@ class MqttClient(mqtt.Client):
         self.ha = ha
         # need reference to Api to set values (incoming commands over mqtt)
         self.api = api
+        state_topic = self.get_state_topic(
+            "q2m", "status", "running")
+
+        self.will_set(topic=state_topic,
+                      payload=Q2mState(running=False).model_dump_json())
         self.username_pw_set(self.config.user, self.config.password)
         self.subs = []
         self.connected = False
@@ -31,6 +36,8 @@ class MqttClient(mqtt.Client):
         for topic in self.subs:
             log.debug(f"sub topic {topic}")
             self.subscribe(topic)
+        self.publish_state("q2m",  "status", "running",
+                           Q2mState().model_dump_json())
 
     def on_message(self, client, userdata, message):
         log.debug("received message =", str(message.payload.decode("utf-8")))
@@ -52,7 +59,7 @@ class MqttClient(mqtt.Client):
             self.subs.append(topic)
 
     def deploy_config(self, config_topic: str, config: Config):
-        self.publish_msg(config_topic, config.json(
+        self.publish_msg(config_topic, config.model_dump_json(
             exclude_none=True), retain=True)
 
     def publish_state(self, pump_id: str, category: str, name: str, value):

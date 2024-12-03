@@ -5,11 +5,12 @@ import logging
 import sys
 import time
 import traceback
+from typing import Optional
 from mqtt import MqttClient
 from ha_classes import Availability, BinarySensor, Device, DeviceClass, Number, Sensor, Switch
 from config import Config, load_config
 from qvantum_api import QvantumApi
-from qvantum_classes import Connectivity, MetaData, Setting
+from qvantum_classes import Connectivity, MetaData, MetricsInventory, MetricsInventoryResponse, Setting
 
 log = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ class Qvantum2Mqtt:
 
     def __init__(self, config: Config):
 
+        self.config = config
         # Init API class
         self.api = QvantumApi(config.api)
 
@@ -47,24 +49,30 @@ class Qvantum2Mqtt:
                     if pump_settings is None:
                         continue
                     self.mqtt.publish_state(pump.id, "settings", "meta",
-                                            pump_settings.meta.json())
+                                            pump_settings.meta.model_dump_json())
 
                     for setting in pump_settings.settings:
                         self.mqtt.publish_state(pump.id, "settings", setting.name,
-                                                setting.json())
+                                                setting.model_dump_json())
 
-                    pump_status = self.api.get_pump_status(pump.id)
+                    pump_status, raw = self.api.get_pump_status(pump.id)
                     if pump_status is None:
                         continue
 
-                    self.mqtt.publish_state(pump.id, "status", "metrics",
-                                            pump_status.metrics.json())
+                    self.mqtt.publish_state(
+                        pump.id, "status", "raw_data", str(raw))
+                    # pump_status.metrics may be empty. Timestamp is None and hpid is the only thing set.
+                    if pump_status.connectivity is not None and pump_status.metrics.time is not None:
+                        self.mqtt.publish_state(pump.id, "status", "connectivity",
+                                                pump_status.connectivity.model_dump_json())
 
-                    self.mqtt.publish_state(pump.id, "status", "connectivity",
-                                            pump_status.connectivity.json())
+                    if pump_status.metrics is not None:
+                        self.mqtt.publish_state(pump.id, "status", "metrics",
+                                                pump_status.metrics.model_dump_json())
 
-                    self.mqtt.publish_state(pump.id, "status", "metadata",
-                                            pump_status.device_data.json())
+                    if pump_status.device_data is not None:
+                        self.mqtt.publish_state(pump.id, "status", "metadata",
+                                                pump_status.device_data.model_dump_json())
 
                     # This endpoint doesn't work propwerly. Static data and a lot missing... Skip for now
                     # data = self.api.get_pump_metric(
@@ -73,13 +81,18 @@ class Qvantum2Mqtt:
             except Exception as e:
                 log.exception("An exception occured")
 
-            time.sleep(10)  # fetch every 10 seconds
-            if count % 10 == 0:
-                self.refresh_token()
-                count = 0
+            finally:
+                log.info("Sleeping for 10 seconds.")
+                # fetch every 10 seconds
+                time.sleep(self.config.api.refresh_interval)
+                if count % 10 == 0:
+                    self.refresh_token()
+                    count = 0
 
     def configure_metrics(self, pump_id: str, device: Device, availability: Availability):
-        metrics_inventory = self.api.get_pump_metrics_inventory(pump_id)
+        metrics_inventory, raw = self.api.get_pump_metrics_inventory(pump_id)
+        self.mqtt.publish_state(
+            pump_id, "inventory", "metrics", str(raw))
 
         con_state_topic = self.mqtt.get_state_topic(
             pump_id, "status", "connectivity")
@@ -103,41 +116,63 @@ class Qvantum2Mqtt:
 
         state_topic = self.mqtt.get_state_topic(pump_id, "status", "metrics")
         for metric in metrics_inventory.metrics:
-            if metric.name == "compressorenergy":
-                log.debug("compressorenergy not yet available")
-            elif metric.name == "additionalenergy":
-                log.debug("additionalenergy not yet available")
-            elif metric.name == "tap_water_start":
-                log.debug("tap_water_start not yet available")
-            elif metric.name == "tap_water_stop":
-                log.debug("tap_water_stop not yet available")
-            else:
-                config_topic = self.mqtt.get_config_topic(
-                    pump_id, metric.name, "sensor")
-                value_template = self.mqtt.get_value_template(metric.name)
-
-                config = Sensor(device=device,
-                                availability=availability,
-                                name=metric.name,
-                                object_id=f"{pump_id}_{metric.name}",
-                                unique_id=f"qvantum_{pump_id}_{metric.name}",
-                                state_topic=state_topic,
-                                unit_of_measurement=metric.unit,
-                                value_template=value_template)
-                self.mqtt.deploy_config(config_topic, config)
+            config_topic = self.mqtt.get_config_topic(
+                pump_id, metric.name, "sensor")
+            value_template = self.mqtt.get_value_template(metric.name)
+            config = Sensor(device=device,
+                            availability=availability,
+                            name=metric.name,
+                            object_id=f"{pump_id}_{metric.name}",
+                            unique_id=f"qvantum_{pump_id}_{metric.name}",
+                            state_topic=state_topic,
+                            unit_of_measurement=metric.unit,
+                            value_template=value_template)
+            self.mqtt.deploy_config(config_topic, config)
 
     def configure_settings(self, pump_id: str, device: Device, availability: Availability):
         # Listen to set topic
         self.mqtt.add_subscribe(f"qvantum/devices/+/settings/+/set")
-        settings_inventory = self.api.get_pump_settings_inventory(pump_id)
+        settings_inventory, raw = self.api.get_pump_settings_inventory(pump_id)
+
+        self.mqtt.publish_state(pump_id, "settings", "raw_data", str(raw))
+        metrics_inventory, _ = self.api.get_pump_metrics_inventory(pump_id)
+
         for setting in settings_inventory.settings:
+            unit = ""
+            metric = metrics_inventory.find_metric(setting.name)
+            if metric is not None:
+                unit = metric.unit
+
             state_topic = self.mqtt.get_state_topic(
                 pump_id, "settings", setting.name)
             value_template = self.mqtt.get_value_template(
                 Setting.get_value_field_name())
+
+            # old_config_topic = self.mqtt.get_config_topic(
+            #     pump_id, setting.name, "sensor")
+            # self.mqtt.clear_topic(old_config_topic)
+            # old_config_topic = self.mqtt.get_config_topic(
+            #     pump_id, "conf_" + setting.name, "sensor")
+            # self.mqtt.clear_topic(old_config_topic)
+
+            if not setting.read_only:
+                # Create read only sensors for not read only settings
+                config_topic = self.mqtt.get_config_topic(
+                    pump_id, "read_" + setting.name, "sensor")
+                config = Sensor(device=device,
+                                availability=availability,
+                                name=setting.display_name,
+                                object_id=f"{pump_id}_read_{setting.name}",
+                                unique_id=f"qvantum_{pump_id}_read_{setting.name}",
+                                state_topic=state_topic,
+                                unit_of_measurement=unit,
+                                json_attributes_topic=state_topic,
+                                json_attributes_template=Setting.get_attributes_template(),
+                                value_template=value_template)
+                self.mqtt.deploy_config(config_topic, config)
+
             match setting.data_type:
                 case "number":
-                    # Config for this entity
                     command_topic = self.mqtt.get_command_topic(
                         pump_id, "settings", setting.name)
                     config_topic = self.mqtt.get_config_topic(
@@ -152,6 +187,7 @@ class Qvantum2Mqtt:
                                     unique_id=f"qvantum_{pump_id}_{setting.name}",
                                     state_topic=state_topic,
                                     command_topic=command_topic,
+                                    unit_of_measurement=unit,
                                     json_attributes_topic=state_topic,
                                     json_attributes_template=Setting.get_attributes_template(),
                                     value_template=value_template
@@ -170,6 +206,7 @@ class Qvantum2Mqtt:
                                               state_topic=state_topic,
                                               payload_on="on",
                                               payload_off="off",
+                                              unit_of_measurement=unit,
                                               json_attributes_topic=state_topic,
                                               json_attributes_template=Setting.get_attributes_template(),
                                               value_template=value_template
@@ -188,6 +225,7 @@ class Qvantum2Mqtt:
                                         state_topic=state_topic,
                                         payload_on="on",
                                         payload_off="off",
+                                        unit_of_measurement=unit,
                                         json_attributes_topic=state_topic,
                                         json_attributes_template=Setting.get_attributes_template(),
                                         value_template=value_template,
@@ -204,6 +242,7 @@ class Qvantum2Mqtt:
                                     object_id=f"{pump_id}_{setting.name}",
                                     unique_id=f"qvantum_{pump_id}_{setting.name}",
                                     state_topic=state_topic,
+                                    unit_of_measurement=unit,
                                     json_attributes_topic=state_topic,
                                     json_attributes_template=Setting.get_attributes_template(),
                                     value_template=value_template)
@@ -236,6 +275,41 @@ class Qvantum2Mqtt:
         alarms = self.api.get_pump_alarm_inventory(pump_id)
         # log.info(alarms.json())
 
+    def configure_q2m_state_sensors(self, pump_id: str, device: Device):
+        """Sensors to monitor the state of this process. Such as in case failed calls or lost connection with
+            the broker."""
+
+        # Create a sensor for the last will message. I.e. in case this process terminates or connection loss.
+        # All devices will listen to the same state topic, but we configure a sensor for each device, so that
+        # we get a nice view on the device page for each pump.
+        name = "q2m_running_state"
+        state_topic = self.mqtt.get_state_topic(
+            "q2m", "status", "running")
+        config_topic = self.mqtt.get_config_topic(
+            pump_id, name, "binary_sensor")
+
+        config = BinarySensor(device=device,
+                              name="q2m_running_state",
+                              object_id=f"{pump_id}_{name}",
+                              unique_id=f"qvantum_{pump_id}_{name}",
+                              state_topic=state_topic,
+                              payload_on="True",
+                              payload_off="False",
+                              value_template=self.mqtt.get_value_template(
+                                  "running")
+                              )
+        self.mqtt.deploy_config(config_topic, config)
+
+        # TODO: Sensor for errors, such as failed requests and parsing.
+        # config = Sensor(device=device,
+        #                 name=setting.display_name,
+        #                 object_id=f"{pump_id}_{setting.name}",
+        #                 unique_id=f"qvantum_{pump_id}_{setting.name}",
+        #                 state_topic=state_topic,
+        #                 json_attributes_topic=state_topic,
+        #                 json_attributes_template=Setting.get_attributes_template(),
+        #                 value_template=value_template)
+
     def configure_devices(self):
         self.refresh_token()
         for pump in self.devices:
@@ -250,7 +324,7 @@ class Qvantum2Mqtt:
                             manufacturer=pump.vendor, serial_number=pump.serial, model=pump.model)
 
             # Get the metadata for the pump
-            pump_status = self.api.get_pump_status(pump.id)
+            pump_status, _ = self.api.get_pump_status(pump.id)
             # if there is data to be set, do so
             if pump_status.device_data is not None:
                 meta_data: MetaData = pump_status.device_data
@@ -272,6 +346,7 @@ class Qvantum2Mqtt:
             self.configure_metrics(pump.id, device, availability)
             self.configure_alarms(pump.id, device, availability)
             self.configure_device_meta_data(pump.id, device, availability)
+            self.configure_q2m_state_sensors(pump.id, device)
 
 
 def main(config_path: str = "config.ini"):

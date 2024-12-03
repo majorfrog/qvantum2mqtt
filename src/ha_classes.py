@@ -1,7 +1,8 @@
 
 
+from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict
 
 
@@ -15,6 +16,17 @@ class Device(BaseModel):
     serial_number: str
     sw_version: Optional[str] = None
     via_device: Optional[str] = None
+
+
+class Q2mState(BaseModel):
+    running: bool = True
+
+
+class Q2mStatus(BaseModel):
+    last_error: Optional[Any] = None
+    last_error_timestamp: Optional[datetime] = None
+    logging: Optional[str] = None
+    state: Q2mState = Q2mState()
 
 
 class DeviceClass(str, Enum):
@@ -46,7 +58,7 @@ class Config(BaseModel):
     json_attributes_template: Optional[str] = None
     icon: Optional[str] = None
     entity_category: Optional[str] = None
-    availability: Availability
+    availability: Optional[Availability] = None
 
 
 class Sensor(Config):

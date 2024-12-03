@@ -24,6 +24,7 @@ class QvantumApiConfig(BaseModel):
     client_id: str = "qvantum2mqtt"
     state: str = "abc123"
     open_browser: bool = True
+    refresh_interval: int = 30
 
 
 class Config(BaseModel):
